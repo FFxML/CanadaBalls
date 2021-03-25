@@ -130,9 +130,12 @@ TeamDict_Rev = {value:key for (key,value) in TeamDict.items()}
 # Get the league data (completed locked)
 def GetLeagueData(leagueID, league_name, season):
     '''
-    "So you've admitted to yourself that you don't really know football and now you're looking for a different edge..."
+    "So you've admitted to yourself that you don't really know football and 
+    now you're looking for a different edge..."
     
-    A downloader of league data from NFL Fantasy Football. This function will download each week of player points as individual CSVs and save them to a directory. Your league must be made publicly visible.
+    A downloader of league data from NFL Fantasy Football. This function will 
+    download each week of player points as individual CSVs and save them to a directory. 
+    Your league must be made publicly visible.
     -----------
     Parameters
     ----------- 
@@ -331,6 +334,10 @@ def BallWrangling(league_name, season, pos):
     player = pandas.DataFrame() # collect the results long form
     tplayer = pandas.DataFrame() # collect the results tall form
     count = 0
+    
+    # have to rename the flex entry because the raw data uses 'R/W/T'
+    poslist = list(pos)
+    poslist = ['R/W/T' if x=='Flex' else x for x in poslist]
 
     # iterate through week dataframes
     for wdf in wdfs:
@@ -344,7 +351,7 @@ def BallWrangling(league_name, season, pos):
             owner = row['Owner']
             for col in row.index:
                 # only columns that have players in them
-                if any([x in col for x in list(pos)]):
+                if any([x in col for x in poslist]):
                     # ignore if slot is empty
                     if row[col] == '-' or row[col] == "--empty--": 
                         continue
@@ -466,7 +473,7 @@ def BallWrangling(league_name, season, pos):
             tplayer.loc[i,scols] = 'FA'
             i += 1
 
-    tplayer = tplayer.sort_values('week',ascending=True)
+    tplayer = tplayer.sort_index(axis=0)
     tplayer.points = pandas.to_numeric(tplayer.points)
     return tplayer, player
 
@@ -605,12 +612,6 @@ def TransactionSoup(leagueID,season,bowlsize,FAAB=False):
     return trans
 
 
-# In[ ]:
-
-
-RandomForestClassifier()
-
-
 # In[15]:
 
 
@@ -635,8 +636,8 @@ def pot_points(data, pos, flex):
                 idealteam.extend(maxinfo.name)
             elif p == 'Flex':
                 # now do flex
-                flex = data.loc[(~data['name'].isin(idealteam)) & (data['position'].isin(flex)),:]
-                flexinfo = flex.nlargest(n = 1, columns='points')
+                flexdata = data.loc[(~data['name'].isin(idealteam)) & (data['position'].isin(flex)),:]
+                flexinfo = flexdata.nlargest(n = 1, columns='points')
                 potpoints = sum(flexinfo.points,potpoints)
                 idealteam.extend(flexinfo.name)
     # the option to output the ideal roster is saved for later
@@ -711,6 +712,7 @@ def OBrienPlot(OBrienPointsdf):
     plt.figure(figsize=(16,10))
     plt.title("Increasing O'Briens Over Time")
     sns.lineplot(data = pointsgraph)
+    
 
 
 # In[10]:
@@ -769,16 +771,44 @@ def get_unique_str(row):
     
     return pstr
 
-def TradeEvaluator(player, trans):
+def TradeEvaluator(playerdf, transdf):
+    '''
+    "  "
     
+    This function will evaluate the trades made over the season and determine which trades yielded the greatest increase in value
+    
+    -----------
+    Parameters
+    -----------
+    playerdf: dataframe
+        Expects the output1 dataframe from BallWrangling
+    
+    transdf: dataframe
+        Expects the output1 dataframe from TransactionSoup
+    
+    -------
+    Outputs
+    -------
+    output1: dataframe
+        Dataframe displaying the calculated changes in value for each team after each trade
+        -- output1.Improve?
+            The average points gained or lost by the team after the trade
+        -- output1.AtTheTime
+            The average points earned by the traded players before the trade
+        -- output1.%Started
+            The percentage the traded players started for the receiving team
+        -- output1.WeeksOnTeam
+            The number of weeks the traded players stayed on the team
+        
+    '''
     tradecols = ['Date', 'Week', 'TransType', 'Player', 'Position', 'Team', 'From', 'To']
-    trades = trans.loc[trans.TransType == 'Trade',tradecols]
-    names = trans.iloc[trans.loc[trans.TransType=='Add','To'].drop_duplicates().index]
+    trades = transdf.loc[transdf.TransType == 'Trade',tradecols]
+    names = transdf.iloc[transdf.loc[transdf.TransType=='Add','To'].drop_duplicates().index]
     names = names.loc[:,['To','By']]
     names = names.set_index('To').to_dict()['By']
     trades.loc[:,'From'] = trades.loc[:,'From'].map(names)
     trades.loc[:,'To'] = trades.loc[:,'To'].map(names)
-    trades = traded_players(trades,player)
+    trades = traded_players(trades,playerdf)
     
     tradelogA = pandas.DataFrame(columns = ['Date','GM','Improve?','AtTheTime','%Started'])
     tradelogB = pandas.DataFrame(columns = ['Date','GM','Improve?','AtTheTime','%Started'])
@@ -823,17 +853,47 @@ def get_stint(pdf,owner):
             break
     return inds
 
-def PointsPerDollar(trans,player):
-    if 'TransCosts' not in trans.columns:
+def PointsPerDollar(playerdf,transdf):
+    '''
+    "  "
+    
+    This function evaluates which manager was the best at effectively using their FAAB budget to pick up players
+    
+    -----------
+    Parameters
+    -----------
+    playerdf: dataframe
+        Expects the output1 dataframe from BallWrangling
+    
+    transdf: dataframe
+        Expects the output1 dataframe from TransactionSoup
+    
+    -------
+    Outputs
+    -------
+    output1: dataframe
+        Dataframe displaying the calculated changes in value for each team after each trade
+        -- output1.Improve?
+            The average points gained or lost by the team after the trade
+        -- output1.AtTheTime
+            The average points earned by the traded players before the trade
+        -- output1.%Started
+            The percentage the traded players started for the receiving team
+        -- output1.WeeksOnTeam
+            The number of weeks the traded players stayed on the team
+        
+    '''
+    
+    if 'TransCosts' not in transdf.columns:
         print("No FAAB this season")
         return
     else:
-        adds = pandas.DataFrame(trans[trans.TransType=='Add'],copy=True)
+        adds = pandas.DataFrame(transdf[transdf.TransType=='Add'],copy=True)
         adds.loc[:,'TransCosts'] = [0 if not pandas.notnull(x) else                                    int(x.split(' ')[0])                                    for x in adds.TransCosts.values]
         adds.loc[:,'By'] = [x.split(' ')[0] if 'via' in x                            else x for x in adds.By.values]
         adds.Week = pandas.to_numeric(adds.Week)
-        player.week = pandas.to_numeric(player.week)
-        unis = player.unique_str.unique()
+        playerdf.week = pandas.to_numeric(playerdf.week)
+        unis = playerdf.unique_str.unique()
         for i,row in adds.iterrows():
             pstr = get_unique_str(row)
             if pstr not in unis:
@@ -843,9 +903,9 @@ def PointsPerDollar(trans,player):
                 else: 
                     print('couldnt find a match for %s'%pstr)
                     continue
-            pdf = player[(player.unique_str==pstr) & (player.week>=row['Week'])]
+            pdf = playerdf[(playerdf.unique_str==pstr) & (playerdf.week>=row['Week'])]
             stindx = get_stint(pdf,row['By'])
-            stint = player.loc[stindx]
+            stint = playerdf.loc[stindx]
             adds.loc[i,'N_Weeks'] = len(stint)
             adds.loc[i,'Total_Points'] = stint['points'].sum()
             adds.loc[i,'Earned_Points'] = stint[stint.status=='Active'
@@ -894,8 +954,9 @@ def get_unique_str_draft(row):
     return pstr
 
 def DraftSoup(leagueID, n_rounds):
+    
+    
     draft = pandas.DataFrame()
-
     indx = 0
     # iterate through rounds
     for rnd in range(1,n_rounds+1):
@@ -956,6 +1017,12 @@ def radial_differential(df,i,r,col):
     return df.loc[i,col] - mn
 
 def DraftOutcomes(player,draft,trans,radius=3):
+    '''
+    "Come on, Tom. Say it with me, you pancake-eating motherfucker" - Sonny Weaver Jr. Draft Day, 2014
+    
+    
+    
+    '''
     player.index = player.unique_str.values
     all_players = player.unique_str.unique()
     exceptions = []
