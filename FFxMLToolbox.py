@@ -478,6 +478,60 @@ def BallWrangling(league_name, season, pos):
     return tplayer, player
 
 
+# In[2]:
+
+
+# Standings
+def Standings(league_name, season):
+    wdfs = sorted(glob(league_name + '-League-History/' + season+ '/*.csv'), key=get_key)
+    standings = pandas.DataFrame()
+
+    for wdf in wdfs:
+        # get the week number
+        pth,flnm = os.path.split(wdf)
+        week = '%0.2d'%int(flnm.split('.')[0])
+        # read data
+        data = pandas.read_csv(wdf)
+        for i,row in data.iterrows():
+            team = row['Owner']
+            ind = '%s %s'%(week, team)
+            standings.loc[ind, 'Week'] = week
+            if row['Opponent'] == '-':
+                standings.loc[ind, 'Owner'] = team
+                standings.loc[ind, 'Opponent'] = 'BYE'
+                standings.loc[ind, 'Rank'] = row['Rank']
+                standings.loc[ind, 'Wins'] = int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Wins'])
+                standings.loc[ind, 'Losses'] = int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Losses'])
+                standings.loc[ind, 'Record'] = '%s-%s'%(int(standings.loc[ind, 'Wins']), int(standings.loc[ind, 'Losses']))
+                standings.loc[ind, 'Points For'] = standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Points For']
+                standings.loc[ind, 'Points Against'] = standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Points Against']
+            else:
+                standings.loc[ind, 'Owner'] = team
+                standings.loc[ind, 'Opponent'] = row['Opponent']
+                standings.loc[ind, 'Rank'] = row['Rank']
+                if week == '01': 
+                    standings.loc[ind, 'Wins'] = (+1 if row['Total'] > float(row['Opponent Total']) else +0)
+                    standings.loc[ind, 'Losses'] = (+1 if row['Total'] < float(row['Opponent Total']) else +0)
+                else:
+                    standings.loc[ind, 'Wins'] = (int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Wins']+1)
+                                                  if row['Total'] > float(row['Opponent Total']) else int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Wins']+0))
+                    standings.loc[ind, 'Losses'] = (int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Losses']+1)
+                                                    if row['Total'] < float(row['Opponent Total']) else int(standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Losses']+0))
+                standings.loc[ind, 'Record'] = '%s-%s'%(int(standings.loc[ind, 'Wins']), int(standings.loc[ind, 'Losses']))
+                standings.loc[ind, 'Points For'] = (float(row['Total']) + standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Points For'] 
+                                                    if int(week) > 1 else float(row['Total']))
+                standings.loc[ind, 'Points Against'] = (float(row['Opponent Total']) + standings.loc['%s %s'%(f"{(int(week)-1):02d}", team), 'Points Against'] 
+                                                        if int(week) > 1 else float(row['Opponent Total']))
+    standings = standings.sort_index(ascending=True)
+    return standings
+
+# to sort the wdfs into correct order
+def get_key(fp):
+    filename = os.path.splitext(os.path.basename(fp))[0]
+    int_part = filename.split()[0]
+    return int(int_part)
+
+
 # In[4]:
 
 
@@ -686,7 +740,7 @@ def OBrienOMatic(playerdf, pos, flex = ['RB','WR','TE']):
             points.loc[count,'actual points'] = sum(data.loc[data['status'] == 'Active','points'])
             points.loc[count,'potential points'] = pot_points(data, pos, flex)
             count += 1
-    points['OBrien Quotient'] = points['actual points'] - points['potential points']
+    points['OBrien Quotient'] = round((points['actual points'] - points['potential points']),2)
     points = points.sort_values(by=['week','owners'],axis = 0).reset_index(drop=True)
     return points
 
@@ -709,8 +763,11 @@ def OBrienPlot(OBrienPointsdf):
     '''
     pointsgraph = OBrienPointsdf.pivot("week","owners","OBrien Quotient")
     pointsgraph = pointsgraph.cumsum()
+    pointsgraph.loc['00',:] = 0
+    pointsgraph.sort_index(inplace = True)
     plt.figure(figsize=(16,10))
     plt.title("Increasing O'Briens Over Time")
+    plt.rcParams.update({'font.size':18})
     sns.lineplot(data = pointsgraph)
     
 
